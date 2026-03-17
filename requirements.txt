@@ -4,5 +4,6 @@ google-auth-httplib2
 chromadb
 google-genai
 anthropic
+openai
 python-dotenv
 rich

@@ -57,6 +57,7 @@ def print_help():
     table.add_row("refresh", "Extract + process in one step")
     table.add_row("analyze", "Interactive AI analysis session")
     table.add_row('ask "question"', "One-shot question using Gemini Flash")
+    table.add_row('ask "question" --grok', "One-shot question using Grok 4.1 (2M context)")
     table.add_row('ask "question" --claude', "One-shot question using Claude Opus")
     table.add_row("stats", "Show vector database statistics")
     table.add_row("help", "Show this help message")
@@ -163,7 +164,12 @@ def main():
             console.print("  [dim]Usage:[/dim] python main.py ask \"your question\"")
             return
         question = sys.argv[2]
-        provider = "claude" if "--claude" in sys.argv else "gemini"
+        if "--grok" in sys.argv:
+            provider = "grok"
+        elif "--claude" in sys.argv:
+            provider = "claude"
+        else:
+            provider = "gemini"
         cmd_ask(question, provider)
     elif command in commands:
         commands[command]()

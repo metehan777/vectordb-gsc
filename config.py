@@ -8,6 +8,7 @@ GSC_PROPERTY = os.getenv("GSC_PROPERTY", "")
 SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "service_account.json")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 
 SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"]
 
@@ -15,6 +16,8 @@ EMBEDDING_MODEL = "gemini-embedding-2-preview"
 EMBEDDING_DIMENSIONS = 768
 GEMINI_MODEL = "gemini-3-flash-preview"
 CLAUDE_MODEL = "claude-opus-4-6"
+GROK_MODEL = "grok-4-1-fast-non-reasoning"
+XAI_BASE_URL = "https://api.x.ai/v1"
 
 CHROMA_DB_PATH = "chroma_db"
 RAW_DATA_DIR = "raw_data"

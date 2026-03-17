@@ -14,19 +14,28 @@ Turn your Google Search Console data into a vector database and analyze search p
 
 1. **Extracts** the last 16 months of search performance data from Google Search Console
 2. **Embeds** queries, pages, and metrics into a local ChromaDB vector database using Gemini embeddings
-3. **Analyzes** your data using AI (Gemini Flash 3 or Claude Opus) with semantic retrieval (RAG)
+3. **Analyzes** your data using AI with semantic retrieval (RAG) — pick from 3 providers
 
 ## Tech Stack
 
-Everything runs locally, all tools are free-tier:
+Everything runs locally, all core tools are free-tier:
 
 | Component | Tool | Cost |
 |---|---|---|
 | Vector Database | [ChromaDB](https://www.trychroma.com/) (local) | Free |
 | Embeddings | [Gemini `gemini-embedding-2-preview`](https://ai.google.dev/gemini-api/docs/embeddings) (768d, MRL) | Free tier |
 | Analysis LLM | [Gemini Flash 3](https://ai.google.dev/gemini-api/docs/models) | Free tier |
-| Analysis LLM (alt) | [Claude Opus](https://docs.anthropic.com/en/docs/about-claude/models) | Pay-per-use |
+| Analysis LLM | [Grok 4.1](https://docs.x.ai/docs/models) (2M context window) | Pay-per-use |
+| Analysis LLM | [Claude Opus](https://docs.anthropic.com/en/docs/about-claude/models) | Pay-per-use |
 | Data Source | [Google Search Console API](https://developers.google.com/webmaster-tools/v1/api_reference_index) | Free |
+
+### Why 3 Providers?
+
+| Provider | Context Window | Best For |
+|---|---|---|
+| **Gemini Flash 3** (default) | ~1M tokens | Fast, free analysis with good quality |
+| **Grok 4.1** (`--grok`) | **2M tokens** | Deepest analysis — sends 5x more data from the vector DB |
+| **Claude Opus** (`--claude`) | 200K tokens | Strategic, nuanced recommendations |
 
 ## Setup
 
@@ -48,8 +57,9 @@ pip install -r requirements.txt
 
 ### 3. API Keys
 
-- Get a free Gemini API key at [Google AI Studio](https://aistudio.google.com/apikey)
-- (Optional) Get an Anthropic API key at [Anthropic Console](https://console.anthropic.com/)
+- **Gemini** (required): Free key at [Google AI Studio](https://aistudio.google.com/apikey)
+- **Grok** (optional): Key at [xAI Console](https://console.x.ai/)
+- **Claude** (optional): Key at [Anthropic Console](https://console.anthropic.com/)
 
 ### 4. Configure
 
@@ -61,8 +71,9 @@ Edit `.env`:
 
 ```
 SERVICE_ACCOUNT_FILE=your-service-account.json
-GSC_PROPERTY=                  # leave blank to pick interactively, or set e.g. https://example.com/
+GSC_PROPERTY=                  # leave blank to pick interactively
 GEMINI_API_KEY=your-key
+XAI_API_KEY=your-key           # optional, for Grok analysis
 ANTHROPIC_API_KEY=your-key     # optional, for Claude analysis
 ```
 
@@ -118,13 +129,16 @@ python main.py analyze
 │   5  Cannibalization Check   Competing pages for same query │
 │   6  Custom Query            Ask anything                   │
 ╰─────────────────────────────────────────────────────────────╯
+  Tip: type a question directly, or append a flag to pick the AI provider:
+        --grok   Grok 4.1 (2M context)   --claude   Claude Opus   (default: Gemini Flash)
 ```
 
 One-shot questions:
 
 ```bash
 python main.py ask "which queries are rising fastest?"
-python main.py ask "find cannibalization issues" --claude
+python main.py ask "find cannibalization issues" --grok
+python main.py ask "content gap analysis" --claude
 ```
 
 ### Stats
@@ -140,13 +154,13 @@ GSC API ──→ Raw JSON ──→ Data Processor ──→ Gemini Embeddings 
                                                                       │
                               AI Analysis (RAG) ←── Semantic Query ←──┘
                                  │
-                          Gemini Flash 3 / Claude Opus
+                    Gemini Flash 3 / Grok 4.1 / Claude Opus
 ```
 
 1. **Extraction**: Pulls data month-by-month with pagination (25K rows per request) to handle large sites
 2. **Processing**: Aggregates daily rows into query-page pairs with computed metrics (weighted avg position, CTR, trend classification)
 3. **Embedding**: Uses `gemini-embedding-2-preview` with Matryoshka Representation Learning (MRL) at 768 dimensions for efficient storage
-4. **Analysis**: Retrieves semantically relevant documents from ChromaDB, then feeds them to an LLM with expert SEO system prompts
+4. **Analysis**: Retrieves semantically relevant documents from ChromaDB, then feeds them to an LLM with expert SEO system prompts. Grok receives 5x more context (200 docs vs 40) thanks to its 2M token window.
 
 ## Embedding Model
 
@@ -160,7 +174,7 @@ Uses `gemini-embedding-2-preview` with MRL (Matryoshka Representation Learning).
 ├── gsc_extractor.py     # GSC API extraction with service account auth
 ├── data_processor.py    # Raw data aggregation and trend computation
 ├── vector_store.py      # ChromaDB + Gemini embedding operations
-├── ai_analyzer.py       # RAG analysis with Gemini Flash / Claude Opus
+├── ai_analyzer.py       # RAG analysis with Gemini Flash / Grok / Claude
 ├── requirements.txt     # Python dependencies
 ├── .env.example         # Environment variable template
 └── .gitignore
