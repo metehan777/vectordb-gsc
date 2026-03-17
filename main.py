@@ -1,5 +1,4 @@
 import sys
-import time
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -23,6 +22,14 @@ BANNER = r"""
 """
 
 
+def _parse_provider():
+    if "--grok" in sys.argv:
+        return "grok"
+    if "--claude" in sys.argv:
+        return "claude"
+    return "gemini"
+
+
 def print_banner():
     console.print(Text(BANNER, style="bold cyan"))
     console.print(
@@ -41,13 +48,9 @@ def print_help():
     print_banner()
 
     table = Table(
-        box=box.ROUNDED,
-        border_style="cyan",
-        title="[bold]Available Commands[/bold]",
-        title_style="bold white",
-        show_header=True,
-        header_style="bold cyan",
-        padding=(0, 2),
+        box=box.ROUNDED, border_style="cyan",
+        title="[bold]Available Commands[/bold]", title_style="bold white",
+        show_header=True, header_style="bold cyan", padding=(0, 2),
     )
     table.add_column("Command", style="green", no_wrap=True)
     table.add_column("Description", style="white")
@@ -56,11 +59,15 @@ def print_help():
     table.add_row("process", "Process raw data and store embeddings in ChromaDB")
     table.add_row("refresh", "Extract + process in one step")
     table.add_row("analyze", "Interactive AI analysis session")
-    table.add_row('ask "question"', "One-shot question using Gemini Flash")
-    table.add_row('ask "question" --grok', "One-shot question using Grok 4.1 (2M context)")
-    table.add_row('ask "question" --claude', "One-shot question using Claude Opus")
+    table.add_row('ask "question"', "One-shot question (default: Gemini Flash)")
+    table.add_row("", "")
+    table.add_row('audit "url"', "Deep page audit: scrapes your page + competitors")
+    table.add_row('compete "query"', "Competitor analysis: compares top results vs your data")
+    table.add_row("", "")
     table.add_row("stats", "Show vector database statistics")
     table.add_row("help", "Show this help message")
+    table.add_row("", "")
+    table.add_row("[dim]Flags[/dim]", "[dim]--grok  --claude  (append to any analysis command)[/dim]")
 
     console.print(table)
     console.print()
@@ -112,6 +119,16 @@ def cmd_ask(question, provider="gemini"):
     ai_analyzer.run_analysis("custom", provider=provider, custom_query=question)
 
 
+def cmd_audit(page_url, provider="gemini"):
+    print_banner()
+    ai_analyzer.run_page_audit(page_url, provider=provider)
+
+
+def cmd_compete(query, provider="gemini"):
+    print_banner()
+    ai_analyzer.run_competitor_analysis(query, provider=provider)
+
+
 def cmd_stats():
     print_banner()
     _print_stats_inline()
@@ -123,10 +140,8 @@ def _print_stats_inline():
     pg = stats.get(config.PAGES_COLLECTION, 0)
 
     table = Table(
-        box=box.ROUNDED,
-        border_style="blue",
-        title="[bold]ChromaDB Vector Store[/bold]",
-        title_style="bold white",
+        box=box.ROUNDED, border_style="blue",
+        title="[bold]ChromaDB Vector Store[/bold]", title_style="bold white",
         padding=(0, 2),
     )
     table.add_column("Collection", style="white", no_wrap=True)
@@ -149,7 +164,7 @@ def main():
 
     command = sys.argv[1].lower()
 
-    commands = {
+    simple_commands = {
         "extract": cmd_extract,
         "process": cmd_process,
         "refresh": cmd_refresh,
@@ -158,21 +173,26 @@ def main():
         "help": print_help,
     }
 
-    if command == "ask":
+    if command in simple_commands:
+        simple_commands[command]()
+    elif command == "ask":
         if len(sys.argv) < 3:
             console.print("[bold red]Error:[/bold red] Please provide a question.")
-            console.print("  [dim]Usage:[/dim] python main.py ask \"your question\"")
+            console.print('  [dim]Usage:[/dim] python main.py ask "your question"')
             return
-        question = sys.argv[2]
-        if "--grok" in sys.argv:
-            provider = "grok"
-        elif "--claude" in sys.argv:
-            provider = "claude"
-        else:
-            provider = "gemini"
-        cmd_ask(question, provider)
-    elif command in commands:
-        commands[command]()
+        cmd_ask(sys.argv[2], _parse_provider())
+    elif command == "audit":
+        if len(sys.argv) < 3:
+            console.print("[bold red]Error:[/bold red] Please provide a page URL.")
+            console.print('  [dim]Usage:[/dim] python main.py audit "https://example.com/page"')
+            return
+        cmd_audit(sys.argv[2], _parse_provider())
+    elif command == "compete":
+        if len(sys.argv) < 3:
+            console.print("[bold red]Error:[/bold red] Please provide a search query.")
+            console.print('  [dim]Usage:[/dim] python main.py compete "your query"')
+            return
+        cmd_compete(sys.argv[2], _parse_provider())
     else:
         console.print(f"[bold red]Unknown command:[/bold red] {command}\n")
         print_help()

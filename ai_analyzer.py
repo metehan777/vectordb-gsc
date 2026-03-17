@@ -10,6 +10,7 @@ from rich import box
 
 import config
 import vector_store
+import web_research
 
 console = Console()
 
@@ -116,6 +117,37 @@ PROVIDER_LABELS = {
 }
 
 GROK_N_RESULTS = 200
+
+PAGE_AUDIT_SYSTEM = (
+    f"You are an expert SEO content strategist. {YEAR_CONTEXT} "
+    "You are given:\n"
+    "1. Google Search Console data showing how a page performs (queries, clicks, impressions, CTR, positions)\n"
+    "2. The actual content of the user's page (scraped from the web)\n"
+    "3. The content of top-ranking competitor pages for the same queries\n\n"
+    "Perform a thorough page audit:\n"
+    "1. **Content Coverage Gap**: What topics/subtopics do competitors cover that this page is missing?\n"
+    "2. **Heading Structure**: Compare H1/H2/H3 structure against competitors\n"
+    "3. **Depth Analysis**: Where does the page lack depth compared to top results?\n"
+    "4. **Search Intent Match**: Does the page content match what users are actually searching for (based on GSC queries)?\n"
+    "5. **Quick Wins**: Specific sections, paragraphs, or data points to add that competitors have\n"
+    "6. **Technical SEO**: Missing schema, internal links, or structural improvements\n\n"
+    "Be extremely specific. Reference actual content from both the user's page and competitors. "
+    "Provide a prioritized action list with estimated impact."
+)
+
+COMPETITOR_GAP_SYSTEM = (
+    f"You are an expert SEO analyst specializing in competitive analysis. {YEAR_CONTEXT} "
+    "You are given:\n"
+    "1. Google Search Console data for the user's site\n"
+    "2. Live search results from the web showing what competitors rank for\n\n"
+    "Analyze the competitive landscape:\n"
+    "1. **Ranking Competitors**: Who are the main competitors appearing for these queries?\n"
+    "2. **Content Superiority**: What makes competitor content better (format, depth, freshness, media)?\n"
+    "3. **Missing Topics**: What are competitors covering that the user's site doesn't have at all?\n"
+    "4. **Differentiation Opportunities**: Where can the user create unique value competitors lack?\n"
+    "5. **Actionable Plan**: Specific content pieces to create or update, with priority order\n\n"
+    "Be specific with URLs, topics, and recommendations."
+)
 
 
 def _gather_context(analysis_key, custom_query=None, large_context=False):
@@ -266,6 +298,133 @@ def run_analysis(analysis_key, provider="gemini", custom_query=None):
     console.print(Panel(
         Markdown(result),
         title=f"[bold white]{title}[/bold white]  [dim]via {provider}[/dim]",
+        border_style="green",
+        padding=(1, 3),
+    ))
+    return result
+
+
+def _dispatch_llm(provider, system_prompt, context, user_message=None):
+    """Route to the right LLM provider."""
+    if provider == "grok":
+        return analyze_with_grok(system_prompt, context, user_message)
+    elif provider == "claude":
+        return analyze_with_claude(system_prompt, context, user_message)
+    return analyze_with_gemini(system_prompt, context, user_message)
+
+
+def run_page_audit(page_url, provider="gemini"):
+    """Audit a specific page: scrape it + competitors, combine with GSC data."""
+    console.print()
+    provider_label = PROVIDER_LABELS.get(provider, provider)
+
+    console.print(Panel(
+        f"  Page: [bold cyan]{page_url}[/bold cyan]\n"
+        f"  AI:   {provider_label}\n\n"
+        "  [dim]This will scrape your page, search for competitors on your top queries,\n"
+        "  and compare content to find what's missing.[/dim]",
+        title="[bold]Page Audit[/bold]",
+        border_style="blue",
+        padding=(1, 2),
+    ))
+    console.print()
+
+    client = vector_store.get_chroma_client()
+    queries_col = vector_store.get_or_create_collection(client, config.QUERIES_COLLECTION)
+
+    page_results = vector_store.query_collection(
+        queries_col, page_url, n_results=100,
+        where={"page": page_url},
+    )
+
+    top_queries = []
+    if page_results and page_results["metadatas"]:
+        pairs = []
+        for meta in page_results["metadatas"][0]:
+            pairs.append((meta.get("query", ""), meta.get("impressions", 0)))
+        pairs.sort(key=lambda x: x[1], reverse=True)
+        top_queries = [q for q, _ in pairs[:5] if q]
+
+    if not top_queries:
+        console.print("  [yellow]No queries found for this page in the vector database.[/yellow]")
+        console.print("  [dim]Falling back to page URL as search query.[/dim]")
+        top_queries = [page_url.split("/")[-2].replace("-", " ") if "/" in page_url else page_url]
+
+    console.print(f"  Top queries to research: [cyan]{', '.join(top_queries)}[/cyan]\n")
+
+    site_domain = config.GSC_PROPERTY or None
+    web_context = web_research.run_page_audit(
+        page_url, top_queries, site_domain=site_domain, max_queries=5
+    )
+
+    if not web_context:
+        console.print("  [red]Web research failed. Check PARALLEL_API_KEY in .env[/red]")
+        return None
+
+    gsc_context = _gather_context(
+        None, custom_query=" ".join(top_queries), large_context=(provider == "grok")
+    )
+    full_context = f"{gsc_context}\n\n---\n\n{web_context}"
+
+    console.print()
+    with Live(
+        Panel(f"  Generating audit with {provider_label}...", border_style="dim", padding=(1, 2)),
+        console=console, transient=True,
+    ):
+        result = _dispatch_llm(provider, PAGE_AUDIT_SYSTEM, full_context)
+
+    console.print(Panel(
+        Markdown(result),
+        title=f"[bold white]Page Audit: {page_url}[/bold white]  [dim]via {provider}[/dim]",
+        border_style="green",
+        padding=(1, 3),
+    ))
+    return result
+
+
+def run_competitor_analysis(query, provider="gemini"):
+    """Search the web for a query and compare against our GSC data."""
+    console.print()
+    provider_label = PROVIDER_LABELS.get(provider, provider)
+
+    console.print(Panel(
+        f"  Query: [bold cyan]{query}[/bold cyan]\n"
+        f"  AI:    {provider_label}\n\n"
+        "  [dim]Searching the web for top-ranking pages and comparing with your data.[/dim]",
+        title="[bold]Competitor Analysis[/bold]",
+        border_style="blue",
+        padding=(1, 2),
+    ))
+    console.print()
+
+    site_domain = config.GSC_PROPERTY or None
+    competitors = web_research.search_competitors(query, site_domain=site_domain, max_results=5)
+
+    if not competitors:
+        console.print("  [red]Web search failed. Check PARALLEL_API_KEY in .env[/red]")
+        return None
+
+    web_parts = [f"## Live Web Results for: \"{query}\"\n"]
+    for i, comp in enumerate(competitors, 1):
+        web_parts.append(f"**{i}. {comp['title']}**")
+        web_parts.append(f"URL: {comp['url']}")
+        for ex in comp.get("excerpts", [])[:3]:
+            web_parts.append(f"  {ex[:4000]}")
+        web_parts.append("")
+    web_context = "\n".join(web_parts)
+
+    gsc_context = _gather_context(None, custom_query=query, large_context=(provider == "grok"))
+    full_context = f"{gsc_context}\n\n---\n\n{web_context}"
+
+    with Live(
+        Panel(f"  Generating competitor analysis with {provider_label}...", border_style="dim", padding=(1, 2)),
+        console=console, transient=True,
+    ):
+        result = _dispatch_llm(provider, COMPETITOR_GAP_SYSTEM, full_context)
+
+    console.print(Panel(
+        Markdown(result),
+        title=f"[bold white]Competitor Analysis: {query}[/bold white]  [dim]via {provider}[/dim]",
         border_style="green",
         padding=(1, 3),
     ))

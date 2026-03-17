@@ -9,6 +9,7 @@ SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "service_account.json")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+PARALLEL_API_KEY = os.getenv("PARALLEL_API_KEY", "")
 
 SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"]
 
