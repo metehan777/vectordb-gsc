@@ -171,7 +171,8 @@ def analyze_with_gemini(system_prompt, context, user_message=None):
         model=config.GEMINI_MODEL,
         contents=prompt,
     )
-    return response.text
+    parts = response.candidates[0].content.parts
+    return "".join(p.text for p in parts if p.text)
 
 
 def analyze_with_claude(system_prompt, context, user_message=None):
