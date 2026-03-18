@@ -36,7 +36,8 @@ def print_banner():
         Panel(
             "[bold white]Google Search Console[/bold white] data as a "
             "[bold magenta]Vector Database[/bold magenta], analyzed by "
-            "[bold green]AI[/bold green]",
+            "[bold green]AI[/bold green]\n"
+            "[dim]by[/dim] [bold cyan]metehan.ai[/bold cyan]",
             border_style="dim",
             padding=(0, 2),
         )

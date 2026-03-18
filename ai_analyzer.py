@@ -15,6 +15,7 @@ import web_research
 console = Console()
 
 YEAR_CONTEXT = "The current year is 2026. Base all analysis, trends, and recommendations on this timeframe."
+NO_SCHEMA = "Do NOT suggest schema markup, structured data, or JSON-LD unless the user explicitly asks about schema."
 
 ANALYSIS_PROMPTS = {
     "overview": {
@@ -22,7 +23,7 @@ ANALYSIS_PROMPTS = {
         "description": "Top queries, pages, and overall trends",
         "query_text": "top performing queries pages clicks impressions",
         "system": (
-            f"You are an expert SEO analyst. {YEAR_CONTEXT} "
+            f"You are an expert SEO analyst. {YEAR_CONTEXT} {NO_SCHEMA} "
             "Analyze the Google Search Console data provided. "
             "Give a comprehensive performance overview including:\n"
             "1. Top performing queries and pages by clicks\n"
@@ -38,7 +39,7 @@ ANALYSIS_PROMPTS = {
         "description": "High-impression, low-CTR queries to optimize",
         "query_text": "high impressions low CTR opportunity optimize",
         "system": (
-            f"You are an expert SEO analyst. {YEAR_CONTEXT} "
+            f"You are an expert SEO analyst. {YEAR_CONTEXT} {NO_SCHEMA} "
             "Analyze the Google Search Console data provided. "
             "Find and prioritize SEO opportunities by identifying:\n"
             "1. Queries with high impressions but low CTR (below 3%) - these need title/description optimization\n"
@@ -55,7 +56,7 @@ ANALYSIS_PROMPTS = {
         "description": "Queries losing position or clicks over time",
         "query_text": "declining falling dropping traffic loss position",
         "system": (
-            f"You are an expert SEO analyst. {YEAR_CONTEXT} "
+            f"You are an expert SEO analyst. {YEAR_CONTEXT} {NO_SCHEMA} "
             "Analyze the Google Search Console data provided. "
             "Focus on declining performance:\n"
             "1. Identify queries and pages with declining trends\n"
@@ -73,7 +74,7 @@ ANALYSIS_PROMPTS = {
         "description": "Queries where pages don't match intent",
         "query_text": "content gap mismatch query page relevance",
         "system": (
-            f"You are an expert SEO analyst. {YEAR_CONTEXT} "
+            f"You are an expert SEO analyst. {YEAR_CONTEXT} {NO_SCHEMA} "
             "Analyze the Google Search Console data provided. "
             "Perform a content gap analysis:\n"
             "1. Find queries where the ranking page doesn't seem like the best match\n"
@@ -90,7 +91,7 @@ ANALYSIS_PROMPTS = {
         "description": "Multiple pages competing for same queries",
         "query_text": "same query multiple pages cannibalization competing",
         "system": (
-            f"You are an expert SEO analyst. {YEAR_CONTEXT} "
+            f"You are an expert SEO analyst. {YEAR_CONTEXT} {NO_SCHEMA} "
             "Analyze the Google Search Console data provided. "
             "Detect keyword cannibalization:\n"
             "1. Find queries where multiple pages from the same site are ranking\n"
@@ -105,7 +106,7 @@ ANALYSIS_PROMPTS = {
 }
 
 CUSTOM_SYSTEM = (
-    f"You are an expert SEO analyst with access to Google Search Console data. {YEAR_CONTEXT} "
+    f"You are an expert SEO analyst with access to Google Search Console data. {YEAR_CONTEXT} {NO_SCHEMA} "
     "Answer the user's question using the data provided. Be specific with numbers, "
     "identify patterns, and give actionable recommendations."
 )
@@ -116,10 +117,10 @@ PROVIDER_LABELS = {
     "grok": "[bold red]Grok 4.1[/bold red]",
 }
 
-GROK_N_RESULTS = 200
+GROK_N_RESULTS = 400
 
 PAGE_AUDIT_SYSTEM = (
-    f"You are an expert SEO content strategist. {YEAR_CONTEXT} "
+    f"You are an expert SEO content strategist. {YEAR_CONTEXT} {NO_SCHEMA} "
     "You are given:\n"
     "1. Google Search Console data showing how a page performs (queries, clicks, impressions, CTR, positions)\n"
     "2. The actual content of the user's page (scraped from the web)\n"
@@ -130,13 +131,13 @@ PAGE_AUDIT_SYSTEM = (
     "3. **Depth Analysis**: Where does the page lack depth compared to top results?\n"
     "4. **Search Intent Match**: Does the page content match what users are actually searching for (based on GSC queries)?\n"
     "5. **Quick Wins**: Specific sections, paragraphs, or data points to add that competitors have\n"
-    "6. **Technical SEO**: Missing schema, internal links, or structural improvements\n\n"
+    "6. **Internal Linking**: Missing internal links or structural improvements\n\n"
     "Be extremely specific. Reference actual content from both the user's page and competitors. "
     "Provide a prioritized action list with estimated impact."
 )
 
 COMPETITOR_GAP_SYSTEM = (
-    f"You are an expert SEO analyst specializing in competitive analysis. {YEAR_CONTEXT} "
+    f"You are an expert SEO analyst specializing in competitive analysis. {YEAR_CONTEXT} {NO_SCHEMA} "
     "You are given:\n"
     "1. Google Search Console data for the user's site\n"
     "2. Live search results from the web showing what competitors rank for\n\n"
@@ -166,13 +167,32 @@ def _gather_context(analysis_key, custom_query=None, large_context=False):
         n_results = GROK_N_RESULTS if large_context else prompt_config.get("n_results", 30)
         where = prompt_config.get("where")
 
+    vdb_table = Table(box=box.SIMPLE, border_style="dim", padding=(0, 1))
+    vdb_table.add_column("Parameter", style="white")
+    vdb_table.add_column("Value", style="cyan")
+    vdb_table.add_row("Semantic query", f'"{query_text}"')
+    vdb_table.add_row("Max results (queries)", str(n_results))
+    page_n = min(n_results, 100) if large_context else min(n_results, 100)
+    vdb_table.add_row("Max results (pages)", str(page_n))
+    if where:
+        vdb_table.add_row("Filter", str(where))
+    console.print(Panel(
+        vdb_table,
+        title="[bold]Vector DB Query[/bold]",
+        border_style="blue",
+        padding=(0, 1),
+    ))
+
     query_results = vector_store.query_collection(
         queries_col, query_text, n_results=n_results, where=where
     )
-    page_n = min(n_results, 50) if large_context else min(n_results, 20)
     page_results = vector_store.query_collection(
         pages_col, query_text, n_results=page_n
     )
+
+    q_count = len(query_results["documents"][0]) if query_results and query_results["documents"] else 0
+    p_count = len(page_results["documents"][0]) if page_results and page_results["documents"] else 0
+    console.print(f"  [dim]Retrieved[/dim] [cyan]{q_count}[/cyan] [dim]query-page pairs and[/dim] [cyan]{p_count}[/cyan] [dim]page docs from vector DB[/dim]\n")
 
     context_parts = ["## Query-Page Performance Data\n"]
     if query_results and query_results["documents"]:
@@ -277,9 +297,11 @@ def run_analysis(analysis_key, provider="gemini", custom_query=None):
     large_context = provider == "grok"
     console.print()
 
+    context = _gather_context(analysis_key, custom_query, large_context=large_context)
+
     with Live(
         Panel(
-            f"  Querying vector database & generating analysis with {provider_label}..."
+            f"  Generating analysis with {provider_label}..."
             + (" [dim](2M context — sending more data)[/dim]" if large_context else ""),
             border_style="dim",
             padding=(1, 2),
@@ -287,7 +309,6 @@ def run_analysis(analysis_key, provider="gemini", custom_query=None):
         console=console,
         transient=True,
     ):
-        context = _gather_context(analysis_key, custom_query, large_context=large_context)
         if provider == "grok":
             result = analyze_with_grok(system_prompt, context, custom_query)
         elif provider == "claude":
@@ -332,6 +353,14 @@ def run_page_audit(page_url, provider="gemini"):
     client = vector_store.get_chroma_client()
     queries_col = vector_store.get_or_create_collection(client, config.QUERIES_COLLECTION)
 
+    vdb_table = Table(box=box.SIMPLE, border_style="dim", padding=(0, 1))
+    vdb_table.add_column("Parameter", style="white")
+    vdb_table.add_column("Value", style="cyan")
+    vdb_table.add_row("Semantic query", f'"{page_url}"')
+    vdb_table.add_row("Max results", "100")
+    vdb_table.add_row("Filter", f'{{"page": "{page_url}"}}')
+    console.print(Panel(vdb_table, title="[bold]Vector DB Query — Page Lookup[/bold]", border_style="blue", padding=(0, 1)))
+
     page_results = vector_store.query_collection(
         queries_col, page_url, n_results=100,
         where={"page": page_url},
@@ -344,6 +373,9 @@ def run_page_audit(page_url, provider="gemini"):
             pairs.append((meta.get("query", ""), meta.get("impressions", 0)))
         pairs.sort(key=lambda x: x[1], reverse=True)
         top_queries = [q for q, _ in pairs[:5] if q]
+
+    q_found = len(page_results["metadatas"][0]) if page_results and page_results["metadatas"] else 0
+    console.print(f"  [dim]Retrieved[/dim] [cyan]{q_found}[/cyan] [dim]matching docs[/dim]")
 
     if not top_queries:
         console.print("  [yellow]No queries found for this page in the vector database.[/yellow]")
