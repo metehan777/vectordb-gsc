@@ -175,6 +175,56 @@ GSC API ──→ Raw JSON ──→ Data Processor ──→ Gemini Embeddings 
 4. **Analysis**: Retrieves semantically relevant documents from ChromaDB, feeds them to an LLM with expert SEO system prompts. Grok receives 5x more context (200 docs vs 40) thanks to its 2M token window
 5. **Web Research** (optional): For `audit` and `compete` commands, Parallel.ai scrapes live web content and competitor pages, giving the AI real data to compare against
 
+## Why a Vector Database? (Honest Review)
+
+GSC data is fundamentally **structured** — queries, pages, clicks, impressions, CTR, position, date. This is tabular data, and a SQL database would handle exact filtering and aggregations more precisely. So why use a vector database?
+
+### What the Vector DB does well
+
+- **Semantic discovery**: Ask "what content about AI is performing?" and it finds queries like "neural network tutorial" and "transformer architecture" — even though they don't contain the word "AI." SQL can't do that without manually building keyword lists.
+- **Natural language interface**: Ask freeform questions and get contextually relevant data. No need to write SQL or build filters.
+- **Cross-referencing patterns**: The embedding model surfaces connections between conceptually related queries that pure SQL filtering would miss.
+- **Persistence**: Extract once from the GSC API, query locally thousands of times. No rate limits, no latency.
+
+### Where the Vector DB is not ideal
+
+- **Numerical precision is fuzzy**: When you ask "find queries with CTR below 2%", a SQL `WHERE ctr < 0.02` gives you the exact right rows. The vector DB does semantic text similarity — it might miss high-impression queries or include irrelevant ones because it's matching on text, not math.
+- **Structured aggregations**: "Top 10 pages by clicks" is a trivial SQL query. With a vector DB, you're hoping the embedding similarity retrieves the right documents.
+- **GSC data isn't unstructured text**: Vector DBs shine on documents, articles, and code. GSC metrics embedded as text like `"clicks: 150, impressions: 5000"` don't carry true numerical meaning in the vector space.
+
+### What Parallel.ai adds
+
+The `audit` and `compete` commands use [Parallel.ai](https://parallel.ai/) to scrape live web content — your own pages and competitor pages. This is where the tool goes beyond what any database (vector or SQL) or GSC MCP can do alone:
+
+- **Your GSC data tells you *how* you rank** — clicks, impressions, position, CTR
+- **Parallel.ai tells you *why* you rank (or don't)** — by scraping what's actually on your page vs. what competitors have
+
+Neither a vector DB nor a SQL DB contains competitor content. Neither does the GSC API. Parallel.ai bridges that gap by giving the LLM real page content to compare against, turning a data analysis tool into a content strategy tool.
+
+### Comparison: Vector DB vs GSC MCP vs SQL DB
+
+| | Vector DB (this tool) | GSC MCP Server | SQL DB (DuckDB/SQLite) |
+|---|---|---|---|
+| **Data freshness** | Stale (needs `refresh`) | Real-time | Stale (needs import) |
+| **Numeric precision** | Fuzzy (semantic similarity) | Exact (API filters) | Exact (`WHERE`, `ORDER BY`) |
+| **Semantic search** | Yes | No | No |
+| **Natural language queries** | Yes | No | No (needs NL-to-SQL layer) |
+| **Historical analysis (16 months)** | Yes (all data stored locally) | Limited (API quotas per request) | Yes (all data stored locally) |
+| **Bulk analysis speed** | Instant (local) | Slow (API calls per question) | Instant (local) |
+| **Rate limits** | None (local) | GSC API quotas | None (local) |
+| **Trend detection** | Yes (pre-computed) | No (raw API responses) | Possible (needs query logic) |
+| **Web research / competitor scraping** | Yes (via Parallel.ai) | No | No |
+| **Setup complexity** | Medium (embeddings cost time) | Low (just API credentials) | Low |
+| **Best for** | Open-ended discovery + content audits | Quick live lookups | Precise metric filtering |
+
+### The honest verdict
+
+The **ideal architecture** would be a hybrid: SQL for precise numerical queries + vector DB for semantic discovery + LLM on top of both. This tool leans into the vector DB side, which makes it strong for exploratory analysis and natural language questions, but less precise for exact metric-based filtering. The real value isn't just the storage layer — it's the aggregation pipeline (`data_processor.py`) that computes trends, averages, and structures 2M+ raw rows into meaningful documents before anything touches the vector DB.
+
+A GSC MCP server gives you live data but can't do bulk historical analysis, trend detection, or semantic search. If you only need "what's my CTR for query X today?", an MCP is simpler. If you want "which topic clusters are declining across 16 months and what should I do about it?", you need what this tool provides.
+
+Where this tool truly differentiates is the **Parallel.ai integration**: no other approach gives you side-by-side content comparison between your pages and competitors, combined with 16 months of GSC performance data, all fed into an LLM in one prompt.
+
 ## Embedding Model
 
 Uses `gemini-embedding-2-preview` with MRL (Matryoshka Representation Learning). The model outputs 3072-dimensional embeddings by default, truncated to 768 dimensions via `output_dimensionality` for efficient storage with minimal quality loss. You can adjust this in `config.py` to 1536 or 3072 if needed.
